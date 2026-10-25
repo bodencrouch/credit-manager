@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"net/url"
 	"strings"
 
 	"github.com/yuluo688/credit-manager/internal/service"
@@ -36,13 +37,42 @@ func authenticate(raw []byte) ([]byte, error) {
 	}
 	principal, meta, ok := svc.Authenticate(context.Background(), req.Headers)
 	if !ok {
-		return okEnvelope(pluginapi.FrontendAuthResponse{Authenticated: false})
+		return okEnvelope(rejectedKeyResponse(req.Headers, req.Query))
 	}
 	return okEnvelope(pluginapi.FrontendAuthResponse{
 		Authenticated: true,
 		Principal:     principal,
 		Metadata:      meta,
 	})
+}
+
+const rejectedKeyMessage = "Invalid API key: credit-manager handles authentication on this proxy and only accepts its own tk- keys sent as Authorization: Bearer"
+
+// We're the exclusive auth provider, so the host never tries its own api-keys.
+// A bare Authenticated:false comes back as "Missing API key" even when the
+// client sent one, which hides why a working host key suddenly stops working.
+func rejectedKeyResponse(headers http.Header, query url.Values) rpcFrontendAuthResponse {
+	if !hasClientCredential(headers, query) {
+		return rpcFrontendAuthResponse{}
+	}
+	return rpcFrontendAuthResponse{
+		DenyStatusCode: http.StatusUnauthorized,
+		DenyMessage:    rejectedKeyMessage,
+	}
+}
+
+func hasClientCredential(headers http.Header, query url.Values) bool {
+	for _, name := range []string{"Authorization", "X-Api-Key", "X-Goog-Api-Key"} {
+		if strings.TrimSpace(headers.Get(name)) != "" {
+			return true
+		}
+	}
+	for _, name := range []string{"key", "auth_token"} {
+		if strings.TrimSpace(query.Get(name)) != "" {
+			return true
+		}
+	}
+	return false
 }
 
 func publicModelDirectoryRequest(method, path string) bool {

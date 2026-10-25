@@ -52,6 +52,14 @@ type registrationCapability struct {
 	SchedulerAcrossPriorities bool `json:"scheduler_across_priorities,omitempty"`
 }
 
+// rpcFrontendAuthResponse carries the deny fields CPA >= 8.0.39 reads from
+// FrontendAuthResponse; older hosts ignore them and fall back to their own error.
+type rpcFrontendAuthResponse struct {
+	pluginapi.FrontendAuthResponse
+	DenyStatusCode int    `json:"DenyStatusCode,omitempty"`
+	DenyMessage    string `json:"DenyMessage,omitempty"`
+}
+
 type rpcModelRouteRequest struct {
 	pluginapi.ModelRouteRequest
 	HostCallbackID string `json:"host_callback_id,omitempty"`

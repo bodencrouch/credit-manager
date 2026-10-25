@@ -3,6 +3,7 @@ package plugin
 import (
 	"encoding/json"
 	"net/http"
+	"net/url"
 	"testing"
 
 	"github.com/router-for-me/CLIProxyAPI/v8/sdk/pluginapi"
@@ -24,6 +25,49 @@ func TestPublicModelDirectoryRequest(t *testing.T) {
 		if got := publicModelDirectoryRequest(test.method, test.path); got != test.want {
 			t.Errorf("publicModelDirectoryRequest(%q, %q) = %t, want %t", test.method, test.path, got, test.want)
 		}
+	}
+}
+
+func TestRejectedKeyResponse(t *testing.T) {
+	for _, test := range []struct {
+		name    string
+		headers http.Header
+		query   url.Values
+		deny    bool
+	}{
+		{"no credential", http.Header{}, url.Values{}, false},
+		{"blank bearer", http.Header{"Authorization": []string{"  "}}, nil, false},
+		{"host bearer key", http.Header{"Authorization": []string{"Bearer sk-host"}}, nil, true},
+		{"anthropic x-api-key", http.Header{"X-Api-Key": []string{"sk-host"}}, nil, true},
+		{"gemini header", http.Header{"X-Goog-Api-Key": []string{"sk-host"}}, nil, true},
+		{"gemini query", nil, url.Values{"key": []string{"sk-host"}}, true},
+	} {
+		got := rejectedKeyResponse(test.headers, test.query)
+		if got.Authenticated {
+			t.Fatalf("%s: authenticated a rejected key", test.name)
+		}
+		denied := got.DenyStatusCode != 0 || got.DenyMessage != ""
+		if denied != test.deny {
+			t.Errorf("%s: denied = %t, want %t (%+v)", test.name, denied, test.deny, got)
+		}
+		if test.deny && got.DenyStatusCode != http.StatusUnauthorized {
+			t.Errorf("%s: status = %d, want 401", test.name, got.DenyStatusCode)
+		}
+	}
+}
+
+// CPA decodes FrontendAuthResponse with untagged field names.
+func TestRejectedKeyResponseWireNames(t *testing.T) {
+	raw, err := json.Marshal(rejectedKeyResponse(http.Header{"X-Api-Key": []string{"sk-host"}}, nil))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var wire map[string]any
+	if err := json.Unmarshal(raw, &wire); err != nil {
+		t.Fatal(err)
+	}
+	if wire["Authenticated"] != false || wire["DenyStatusCode"] != float64(http.StatusUnauthorized) || wire["DenyMessage"] != rejectedKeyMessage {
+		t.Fatalf("wire = %s", raw)
 	}
 }
 
